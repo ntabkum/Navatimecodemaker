@@ -1,0 +1,39 @@
+# Save as .github/workflows/build.yml in your GitHub repo.
+# Builds Windows, macOS and Linux executables; download them from the
+# "Artifacts" section of the finished workflow run (Actions tab).
+name: Build Nava Timecode Maker
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux audio library
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Build
+        run: python -m PyInstaller --onefile --clean --name NavaTimecodeMaker tc_app_v3.py
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: NavaTimecodeMaker-${{ runner.os }}
+          path: dist/*

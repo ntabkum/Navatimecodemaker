@@ -1,0 +1,7 @@
+flask
+numpy
+ntplib
+requests
+sounddevice
+waitress
+pyinstaller
