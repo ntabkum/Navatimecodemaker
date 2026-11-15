@@ -5,11 +5,11 @@ REM Uses "python -m" so it works even when pyinstaller is not on PATH.
 python -m pip install -r requirements.txt
 if errorlevel 1 goto :fail
 
-python -m PyInstaller --onefile --clean --name NavaTimecodeMaker tc_app_v3.py
+python -m PyInstaller --onefile --clean --name NTM tc_app_v3.py
 if errorlevel 1 goto :fail
 
 echo.
-echo Build finished: dist\NavaTimecodeMaker.exe
+echo Build finished: dist\NTM3.2.exe
 pause
 exit /b 0
 

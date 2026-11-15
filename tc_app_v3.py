@@ -11,6 +11,11 @@ import ntplib
 import requests
 
 try:
+    import psutil  # optional: gives adapter names; falls back to sockets if missing
+except ImportError:
+    psutil = None
+
+try:
     import sounddevice as sd
 except OSError as _e:
     sd = None
@@ -28,11 +33,11 @@ state = {
     "time_source": "pc",
     "ntp_server": "pool.ntp.org",
     "time_server_url": "",
-    "fps": 30.0,
+    "fps": 29.97,
     "timezone": "local",
-    "drop_frame": False,
+    "drop_frame": True,
     "manual_start": "00:00:00:00",
-    "audio_device": "default",
+    "audio_device": "browser",
     "sample_rate": 48000,
     "offset_seconds": 0.0,
     "current_timecode": "00:00:00:00",
@@ -322,16 +327,16 @@ HTML_TEMPLATE = """
                     <option value="23.976">23.976 FPS</option>
                     <option value="24">24 FPS</option>
                     <option value="25">25 FPS (PAL)</option>
-                    <option value="29.97">29.97 FPS</option>
-                    <option value="30" selected>30 FPS</option>
+                    <option value="29.97" selected>29.97 FPS</option>
+                    <option value="30">30 FPS</option>
                 </select>
             </div>
 
             <div class="form-group conditional" id="dfField">
                 <label>29.97 Counting Mode</label>
                 <select id="drop_frame" name="drop_frame">
+                    <option value="true" selected>DF (Drop Frame)</option>
                     <option value="false">NDF (Non-Drop Frame)</option>
-                    <option value="true">DF (Drop Frame)</option>
                 </select>
             </div>
 
@@ -397,7 +402,7 @@ HTML_TEMPLATE = """
                 select.appendChild(opt);
             });
 
-            select.value = isRemoteClient ? 'browser' : 'default';
+            select.value = 'browser';
         }
 
         function realFps(fps) {
@@ -424,7 +429,7 @@ HTML_TEMPLATE = """
         }
 
         function timecodeToFrame(text, nominal, drop) {
-            const parts = text.replace(/;/g, ':').replace(/\./g, ':').trim().split(':');
+            const parts = text.replace(/;/g, ':').replace(/[.]/g, ':').trim().split(':');
             if (parts.length !== 4) throw new Error('Start time must look like HH:MM:SS:FF');
             const [h, m, s, f] = parts.map(Number);
             if ([h, m, s, f].some(isNaN) || h < 0 || h >= 24 || m < 0 || m >= 60 || s < 0 || s >= 60 || f < 0 || f >= nominal) {
@@ -642,6 +647,7 @@ HTML_TEMPLATE = """
             } catch (e) {}
         }
 
+        toggleSourceFields();
         loadDevices();
         setInterval(pollStatus, 250);
     </script>
@@ -757,6 +763,49 @@ def get_lan_ip():
         return None
 
 
+def get_bind_addresses(host):
+    """Returns [(interface_name, ipv4_address), ...] the server is reachable on.
+
+    A specific host binds only that address. '0.0.0.0' binds every IPv4
+    interface on this computer, so all of them are listed.
+    """
+    if host not in ("0.0.0.0", ""):
+        return [("", host)]
+
+    found = []
+
+    def add(name, ip):
+        if ip and not any(ip == existing for _, existing in found):
+            found.append((name, ip))
+
+    if psutil is not None:
+        try:
+            for name, addrs in psutil.net_if_addrs().items():
+                for a in addrs:
+                    if a.family == socket.AF_INET:
+                        add(name, a.address)
+        except Exception:
+            pass
+
+    if not found:  # fallback without psutil: no adapter names
+        try:
+            for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+                add("", ip)
+        except OSError:
+            pass
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                add("", info[4][0])
+        except OSError:
+            pass
+        add("", get_lan_ip())
+        add("Loopback", "127.0.0.1")
+
+    # Loopback last, everything else in discovery order
+    found.sort(key=lambda item: item[1].startswith("127."))
+    return found
+
+
 def open_browser_when_ready(port, url, timeout=15.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -782,11 +831,17 @@ if __name__ == "__main__":
     print(" Nava Timecode Maker")
     if port != preferred_port:
         print(f" Port {preferred_port} is in use, using port {port} instead.")
-    print(f" Open in your browser: {url}")
-    if host == "0.0.0.0":
-        lan_ip = get_lan_ip()
-        if lan_ip:
-            print(f" From other devices on your network: http://{lan_ip}:{port}")
+    addresses = get_bind_addresses(host)
+    if host in ("0.0.0.0", ""):
+        print(f" Listening on ALL network interfaces, port {port}:")
+    else:
+        print(f" Listening on {host}, port {port}:")
+    width = max((len(name) for name, _ in addresses), default=0)
+    for name, ip in addresses:
+        label = f"{name:<{width}}  " if width else ""
+        print(f"   {label}http://{ip}:{port}")
+    if host in ("0.0.0.0", ""):
+        print(" Other devices on the same network can use any non-127 address above.")
     print(" Close this window (or press Ctrl+C) to quit.")
     print("=" * 56)
 

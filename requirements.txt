@@ -5,3 +5,4 @@ requests
 sounddevice
 waitress
 pyinstaller
+psutil
